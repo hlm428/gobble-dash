@@ -4,7 +4,7 @@
 // one deterministic scene for a screenshot instead of starting the game.
 
 import { FIELD, STEP, STAGES } from './config.js';
-import { createWorld, resetWorld, stepWorld, distanceM, score, EVENT_JUMP, EVENT_LAND, EVENT_CORN, EVENT_FEATHER, EVENT_GOLDEN, EVENT_HIT, EVENT_STAGE, EVENT_ESCAPED, EVENT_CAUGHT, EVENT_SPOTTED } from './world.js';
+import { createWorld, resetWorld, stepWorld, distanceM, score, EVENT_JUMP, EVENT_LAND, EVENT_CORN, EVENT_FEATHER, EVENT_GOLDEN, EVENT_FEED, EVENT_HIT, EVENT_STAGE, EVENT_ESCAPED, EVENT_CAUGHT, EVENT_SPOTTED } from './world.js';
 import { render, currentButtons } from './render.js';
 import { createInput, ACTION_JUMP, ACTION_CONFIRM, ACTION_PAUSE, ACTION_MUTE } from './input.js';
 import { createAudio } from './audio.js';
@@ -70,6 +70,7 @@ function playEvents(events) {
   if (events & EVENT_CORN) audio.corn();
   if (events & EVENT_FEATHER) audio.feather();
   if (events & EVENT_GOLDEN) audio.golden();
+  if (events & EVENT_FEED) audio.feed();
   if (events & EVENT_HIT) audio.hit();
   if (events & EVENT_SPOTTED) audio.spotted();
   if (events & EVENT_STAGE) audio.stage();

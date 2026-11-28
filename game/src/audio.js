@@ -65,6 +65,12 @@ export function createAudio() {
       tone({ from: 659, seconds: 0.1, type: 'sine', gain: 0.13, when: 0.09 });
       tone({ from: 784, seconds: 0.16, type: 'sine', gain: 0.13, when: 0.18 });
     },
+    feed() {
+      tone({ from: 523, seconds: 0.09, type: 'sine', gain: 0.14 });
+      tone({ from: 659, seconds: 0.09, type: 'sine', gain: 0.14, when: 0.08 });
+      tone({ from: 784, seconds: 0.09, type: 'sine', gain: 0.14, when: 0.16 });
+      tone({ from: 1046, seconds: 0.18, type: 'sine', gain: 0.14, when: 0.24 });
+    },
     hit() {
       tone({ from: 220, to: 55, seconds: 0.28, type: 'sawtooth', gain: 0.2 });
       tone({ from: 110, to: 40, seconds: 0.2, type: 'square', gain: 0.12, when: 0.02 });

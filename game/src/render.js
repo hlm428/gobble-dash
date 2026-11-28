@@ -418,6 +418,38 @@ function drawFeather(ctx, pk, time) {
   ctx.restore();
 }
 
+function drawFeed(ctx, pk, time) {
+  const bob = Math.sin(time * 4 + pk.x * 0.05) * 3;
+  ctx.save();
+  ctx.translate(pk.x + 15, pk.y + 20 + bob);
+  // Strong glow: feed is the rare, valuable pickup.
+  ctx.fillStyle = 'rgba(255, 180, 60, 0.5)';
+  ellipse(ctx, 0, 0, 30, 34);
+  // Burlap sack.
+  ctx.fillStyle = '#d9a05b';
+  rr(ctx, -14, -12, 28, 32, 6);
+  ctx.fill();
+  ctx.strokeStyle = OUT;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  // Tied top.
+  ctx.fillStyle = '#b07a35';
+  ctx.beginPath();
+  ctx.moveTo(-10, -12);
+  ctx.lineTo(0, -22);
+  ctx.lineTo(10, -12);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Grain dots.
+  ctx.fillStyle = '#8a5a1e';
+  ellipse(ctx, -6, 2, 2, 2.6);
+  ellipse(ctx, 5, 6, 2, 2.6);
+  ellipse(ctx, 0, -4, 2, 2.6);
+  text(ctx, 'FEED', 0, 14, 9, '#5e3d0f', 'center', '800');
+  ctx.restore();
+}
+
 function drawObstacle(ctx, ob) {
   const { x, y, width, height } = ob;
   if (ob.kind === 'fence') {
@@ -817,6 +849,10 @@ function drawHUD(ctx, world) {
   // Pause + mute buttons.
   button(ctx, 'pause', 1120, 24, 56, 44, 'II', 22);
   button(ctx, 'mute', 1188, 24, 56, 44, world.muted ? '✕' : '♪', 22);
+  // Chicken-feed boost indicator.
+  if (world.time < world.feedBoostUntil) {
+    textOutlined(ctx, 'FEED BOOST!', 640, 108, 24, '#ff9f1c', 'center', '800', 5);
+  }
   // Banner.
   if (world.banner.text && world.time < world.banner.until) {
     ctx.font = `700 22px ${FONT}`;
@@ -908,7 +944,7 @@ function drawTitle(ctx, world) {
   text(ctx, 'The Great Turkey Escape', 680, 246, 26, PALETTE.text);
   text(ctx, 'Thanksgiving is coming. The farmer is coming faster.', 680, 284, 18, PALETTE.muted);
   text(ctx, 'SPACE / CLICK — jump      ↓ — duck & slide', 680, 330, 20, PALETTE.text);
-  text(ctx, 'Grab corn to slow the farmer. Reach the forest at 1200 m!', 680, 362, 18, PALETTE.muted);
+  text(ctx, 'Grab corn and chicken feed to slow the farmer. Reach the forest at 1200 m!', 680, 362, 18, PALETTE.muted);
   button(ctx, 'start', 560, 392, 240, 52, 'START RUN', 26);
   if (world.best > 0) textOutlined(ctx, `Best score: ${world.best}`, 680, 482, 20, '#ffd93b', 'center', '800', 5);
   textOutlined(ctx, 'An original game — drawn and sounded entirely in code.', 680, 640, 15, '#ffffff', 'center', '700', 4);
@@ -965,6 +1001,7 @@ export function render(ctx, world) {
     drawScenery(ctx, world);
     for (const pk of world.pickups) {
       if (pk.kind === 'feather') drawFeather(ctx, pk, world.time);
+      else if (pk.kind === 'feed') drawFeed(ctx, pk, world.time);
       else drawCorn(ctx, pk, world.time);
     }
     for (const ob of world.obstacles) drawObstacle(ctx, ob);

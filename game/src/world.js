@@ -6,7 +6,7 @@
 // given seed.
 
 import {
-  FIELD, STEP, TURKEY_X, TURKEY, FARMER, ESCAPE_DISTANCE_M, PX_PER_M,
+  FIELD, STEP, TURKEY_X, TURKEY, FARMER, FEED_BOOST, ESCAPE_DISTANCE_M, PX_PER_M,
   POINTS, STAGES, OBSTACLES, SPAWN_INTERVAL, SPAWN_JITTER, BEST_KEY,
 } from './config.js';
 import { createRandom, pickWeighted } from './random.js';
@@ -21,6 +21,7 @@ export const EVENT_STAGE = 64;
 export const EVENT_ESCAPED = 128;
 export const EVENT_CAUGHT = 256;
 export const EVENT_SPOTTED = 512;
+export const EVENT_FEED = 1024;
 
 const TAUNTS = [
   'Come back here!',
@@ -48,6 +49,10 @@ export function createWorld(seed) {
     pickupTimer: 1.2,
     lastTall: false,
     lastObstacleAt: -10,
+    /** Seconds left on a jump pressed just before landing (jump buffering). */
+    jumpBuffer: 0,
+    /** World time until which the chicken-feed speed boost lasts. */
+    feedBoostUntil: 0,
     banner: { text: '', until: 0 },
     shake: 0,
     flash: 0,
@@ -90,7 +95,10 @@ function stageFor(metres) {
 function turkeyRect(world) {
   const t = world.turkey;
   const height = t.ducking ? TURKEY.duckHeight : TURKEY.height;
-  return { x: TURKEY_X, y: t.y - height, width: TURKEY.width, height };
+  // A few pixels of forgiveness: the drawn turkey is a touch larger than
+  // the box the game actually tests, so clipping an obstacle's edge by a
+  // hair does not count as a hit.
+  return { x: TURKEY_X + 4, y: t.y - height + 4, width: TURKEY.width - 8, height: height - 4 };
 }
 
 function overlaps(a, b) {
@@ -128,6 +136,18 @@ function spawnObstacle(world) {
   }
   world.obstacles.push(obstacle);
   world.lastTall = kind === 'crate' || kind === 'oven';
+  // A hazard can also land on top of a pickup that spawned just before it
+  // (a corn line trails to the right): lift any ground-level pickup that
+  // overlaps this hazard to jump height, so grabbing it never means
+  // running into the hazard. Knives are excluded — a ducking turkey can
+  // still grab a ground-level pickup under one.
+  if (kind !== 'knifeThrown' && kind !== 'knifeFalling') {
+    for (const pk of world.pickups) {
+      if (pk.y === FIELD.groundY - 46 && pk.x < obstacle.x + obstacle.width + 40 && pk.x + pk.width > obstacle.x - 40) {
+        pk.y = FIELD.groundY - 130;
+      }
+    }
+  }
 }
 
 function spawnPickup(world) {
@@ -137,7 +157,11 @@ function spawnPickup(world) {
   const roll = random();
   let kind = 'corn';
   let y = FIELD.groundY - 46;
-  if (stage === 2 && roll < 0.06) {
+  if (roll >= 0.92) {
+    // Chicken feed: rare, always at jump height, the big escape tool.
+    kind = 'feed';
+    y = FIELD.groundY - 130;
+  } else if (stage === 2 && roll < 0.06) {
     kind = 'goldenCorn';
     y = FIELD.groundY - 150;
   } else if (roll < 0.16) {
@@ -147,6 +171,14 @@ function spawnPickup(world) {
     y = FIELD.groundY - 130;
   }
   const x = FIELD.width + 40;
+  // Never put a ground-level pickup where grabbing it means running into
+  // a hazard: if a fence, hay bale, crate, oven or puddle is waiting at
+  // the spawn point, lift the pickup to jump height so it is collected on
+  // the way over the hazard instead of inside it.
+  if (y === FIELD.groundY - 46) {
+    const hazardNear = world.obstacles.some((ob) => ob.kind !== 'knifeThrown' && ob.kind !== 'knifeFalling' && ob.x + ob.width > x - 60 && ob.x < x + 200);
+    if (hazardNear) y = FIELD.groundY - 130;
+  }
   world.pickups.push({ kind, x, y, width: 30, height: 40, taken: false });
   // Corn often comes in a little line of three.
   if (kind === 'corn' && random() < 0.5) {
@@ -174,13 +206,18 @@ export function stepWorld(world, input, dt = STEP) {
     world.banner = { text: STAGES[stage].banner, until: world.time + 2.6 };
     events |= EVENT_STAGE;
   }
-  world.scrollSpeed = STAGES[stage].baseSpeed + metres * 0.12;
+  world.scrollSpeed = (STAGES[stage].baseSpeed + metres * 0.12) * (world.time < world.feedBoostUntil ? FEED_BOOST.speedMult : 1);
 
   // --- turkey: jump, gravity, duck, run cycle ---
   t.ducking = input.ducking && t.onGround;
-  if (input.jump && t.onGround) {
+  // Jump buffering: a press a fraction of a second before landing still
+  // fires the jump, so an early tap on a phone is not silently lost.
+  if (input.jump) world.jumpBuffer = 0.12;
+  if (world.jumpBuffer > 0) world.jumpBuffer -= dt;
+  if (world.jumpBuffer > 0 && t.onGround) {
     t.vy = -TURKEY.jumpVelocity;
     t.onGround = false;
+    world.jumpBuffer = 0;
     events |= EVENT_JUMP;
   }
   if (!t.onGround) {
@@ -201,6 +238,10 @@ export function stepWorld(world, input, dt = STEP) {
   f.cleanTime += dt;
   if (f.cleanTime > 3 && f.gap < FARMER.startGap) {
     f.gap = Math.min(FARMER.startGap, f.gap + FARMER.recoverPerSecond * dt);
+  }
+  // Chicken-feed boost: while it lasts the turkey pulls away from the farmer.
+  if (world.time < world.feedBoostUntil && f.gap < FARMER.startGap) {
+    f.gap = Math.min(FARMER.startGap, f.gap + FEED_BOOST.gapPerSecond * dt);
   }
   if (f.gap < 70 && world.time > f.tauntUntil) {
     f.taunt = TAUNTS[Math.floor(world.random() * TAUNTS.length)];
@@ -279,6 +320,11 @@ export function stepWorld(world, input, dt = STEP) {
         world.bonus += POINTS.feather;
         f.gap = Math.min(FARMER.startGap, f.gap + FARMER.cornPush);
         events |= EVENT_FEATHER;
+      } else if (pk.kind === 'feed') {
+        world.bonus += POINTS.feed;
+        f.gap = Math.min(FARMER.startGap, f.gap + FARMER.feedPush);
+        world.feedBoostUntil = world.time + FEED_BOOST.seconds;
+        events |= EVENT_FEED;
       } else {
         world.bonus += POINTS.goldenCorn;
         f.gap = Math.min(FARMER.startGap, f.gap + FARMER.cornPush * 2);

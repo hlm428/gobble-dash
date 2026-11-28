@@ -14,8 +14,9 @@ export const TURKEY = {
   width: 56,
   height: 64,
   duckHeight: 34,
-  jumpVelocity: 1000,
-  gravity: 3200,
+  /** Higher and floatier than v4: the jump felt heavy and clipped obstacles. */
+  jumpVelocity: 1150,
+  gravity: 2900,
   /** Seconds of flashing invulnerability after a hit. */
   invulnerable: 1.2,
 };
@@ -24,11 +25,23 @@ export const TURKEY = {
 export const FARMER = {
   startGap: 220,
   /** Pixels of ground lost on each stumble. */
-  hitCost: 70,
+  hitCost: 60,
   /** Pixels regained per corn cob. */
-  cornPush: 15,
+  cornPush: 20,
+  /** Pixels regained per chicken-feed bag: the big escape tool. */
+  feedPush: 60,
   /** Pixels regained per second of clean running (after 3 s without a hit). */
-  recoverPerSecond: 3,
+  recoverPerSecond: 5,
+};
+
+/** Chicken feed: a short speed burst plus the turkey pulling away. */
+export const FEED_BOOST = {
+  /** Scroll-speed multiplier while the boost lasts. */
+  speedMult: 1.25,
+  /** Seconds the boost lasts. */
+  seconds: 3,
+  /** Extra gap regained per second while boosted. */
+  gapPerSecond: 10,
 };
 
 /** Distance, in metres, the turkey must cover to reach the forest gate. */
@@ -37,7 +50,7 @@ export const ESCAPE_DISTANCE_M = 1200;
 export const PX_PER_M = 50;
 
 /** Points. */
-export const POINTS = { corn: 25, feather: 50, goldenCorn: 100, metre: 1 };
+export const POINTS = { corn: 25, feather: 50, goldenCorn: 100, feed: 150, metre: 1 };
 
 /** The three stages, in order: name, distance range, scroll speed, palette. */
 export const STAGES = [
@@ -90,9 +103,10 @@ export const OBSTACLES = {
   knifeFalling: { width: 18, height: 64, dodge: 'jump', weight: 2, kitchenOnly: true, fallSpeed: 620 },
 };
 
-/** Seconds between obstacle spawns, by stage index. */
-export const SPAWN_INTERVAL = [1.15, 0.95, 0.9];
-export const SPAWN_JITTER = 0.35;
+/** Seconds between obstacle spawns, by stage index. Wider than v4: the
+ *  gaps were too tight to land and jump again, especially on a phone. */
+export const SPAWN_INTERVAL = [1.45, 1.25, 1.1];
+export const SPAWN_JITTER = 0.2;
 
 export const PALETTE = {
   turkeyBody: '#9c5a1a',
