@@ -7,7 +7,7 @@
 
 import {
   FIELD, STEP, TURKEY_X, TURKEY, FARMER, FEED_BOOST, ESCAPE_DISTANCE_M, PX_PER_M,
-  POINTS, STAGES, OBSTACLES, SPAWN_INTERVAL, SPAWN_JITTER, BEST_KEY,
+  POINTS, STAGES, OBSTACLES, BEST_KEY,
 } from './config.js';
 import { createRandom, pickWeighted } from './random.js';
 
@@ -45,10 +45,10 @@ export function createWorld(seed) {
     farmer: { gap: FARMER.startGap, taunt: TAUNTS[0], tauntUntil: 0, cleanTime: 0 },
     obstacles: [],
     pickups: [],
-    spawnTimer: 1.6,
-    pickupTimer: 1.2,
-    lastTall: false,
-    lastObstacleAt: -10,
+    /** distancePx at which the next pattern chunk spawns. */
+    nextChunkDist: 300,
+    /** Running id for pickups, so tests can track each one once. */
+    pickupSeq: 0,
     /** Seconds left on a jump pressed just before landing (jump buffering). */
     jumpBuffer: 0,
     /** World time until which the chicken-feed speed boost lasts. */
@@ -105,88 +105,130 @@ function overlaps(a, b) {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
-function spawnObstacle(world) {
-  const metres = distanceM(world);
-  const stage = stageFor(metres);
-  const random = world.random;
-  const choices = [];
-  for (const [kind, spec] of Object.entries(OBSTACLES)) {
-    if (spec.kitchenOnly && stage < 2) continue;
-    // After a tall obstacle, never stack another tall one right behind it.
-    if (world.lastTall && (kind === 'crate' || kind === 'oven')) continue;
-    // A thrown knife needs a clear run-up: never right after another obstacle.
-    if (kind === 'knifeThrown' && world.time - world.lastObstacleAt < 1.2) continue;
-    choices.push([kind, spec.weight]);
+// --- Pattern-based level generation (天天酷跑 style) ---
+// The course is built from short patterns ("chunks"), not two independent
+// random timers. Every chunk places its obstacles and its coins together,
+// so the coins always sit where the move that clears the chunk takes the
+// turkey: a coin parabola over each jump, a coin line on safe ground, coins
+// under a knife to reward the duck. Chunks are spaced by a deliberate gap
+// of empty road, so the rhythm is action, breather, action — never a random
+// pile-up, never a dead stretch. Difficulty comes from closer chunk gaps
+// and double jumps, not from random spacing.
+
+/** Place one pickup, centred `heightAboveGround` px above the ground. */
+function addPickup(world, x, kind, heightAboveGround) {
+  const y = heightAboveGround <= 0
+    ? FIELD.groundY - 46
+    : FIELD.groundY - heightAboveGround - 20;
+  world.pickupSeq += 1;
+  world.pickups.push({ id: world.pickupSeq, kind, x, y, width: 30, height: 40, taken: false });
+}
+
+/**
+ * A coin parabola over a jump: 7 coins on the jump arc, peak over the
+ * obstacle centre. The turkey collects coins on the way up AND on the way
+ * down, so a full jump never comes back empty. `peakKind` replaces the
+ * peak coin (e.g. a feed bag for the big escape tool).
+ */
+function addJumpArc(world, centreX, peakKind = 'corn') {
+  const halfWidth = 160;
+  const peak = 228;
+  const offsets = [-160, -107, -53, 0, 53, 107, 160];
+  for (const dx of offsets) {
+    const h = peak * (1 - (dx / halfWidth) * (dx / halfWidth));
+    const kind = dx === 0 && peakKind !== 'corn' ? peakKind : 'corn';
+    addPickup(world, centreX + dx - 15, kind, Math.max(0, h));
   }
-  const kind = pickWeighted(random, choices);
+}
+
+function addObstacle(world, kind, x) {
   const spec = OBSTACLES[kind];
-  world.lastObstacleAt = world.time;
-  const obstacle = { kind, width: spec.width, height: spec.height, x: FIELD.width + 40, y: FIELD.groundY - spec.height, vy: 0, stuck: false, counted: false };
+  const obstacle = { kind, width: spec.width, height: spec.height, x, y: FIELD.groundY - spec.height, vy: 0, stuck: false, counted: false };
   if (kind === 'knifeThrown') {
     // Flies in from the kitchen ahead, at head height.
     obstacle.y = FIELD.groundY - 58;
     obstacle.vx = spec.flySpeed;
   } else if (kind === 'knifeFalling') {
     // Drops from above ahead, then sticks in the ground as a jump-over spike.
-    obstacle.x = FIELD.width + 120 + random() * 200;
     obstacle.y = -80;
     obstacle.vy = spec.fallSpeed;
-  } else if (kind === 'puddle') {
-    obstacle.y = FIELD.groundY - spec.height;
   }
   world.obstacles.push(obstacle);
-  world.lastTall = kind === 'crate' || kind === 'oven';
-  // A hazard can also land on top of a pickup that spawned just before it
-  // (a corn line trails to the right): lift any ground-level pickup that
-  // overlaps this hazard to jump height, so grabbing it never means
-  // running into the hazard. Knives are excluded — a ducking turkey can
-  // still grab a ground-level pickup under one.
-  if (kind !== 'knifeThrown' && kind !== 'knifeFalling') {
-    for (const pk of world.pickups) {
-      if (pk.y === FIELD.groundY - 46 && pk.x < obstacle.x + obstacle.width + 40 && pk.x + pk.width > obstacle.x - 40) {
-        pk.y = FIELD.groundY - 130;
-      }
-    }
-  }
+  return obstacle;
 }
 
-function spawnPickup(world) {
+/** Pick a jump-over obstacle for this stage; `avoidTall` keeps a double jump fair. */
+function pickJumpObstacle(world, stage, avoidTall) {
+  const choices = [];
+  for (const [kind, spec] of Object.entries(OBSTACLES)) {
+    if (spec.dodge !== 'jump') continue;
+    if (spec.kitchenOnly && stage < 2) continue;
+    if (avoidTall && (kind === 'crate' || kind === 'oven')) continue;
+    choices.push([kind, spec.weight]);
+  }
+  return pickWeighted(world.random, choices);
+}
+
+/**
+ * Spawn one pattern chunk at the right edge. Returns the chunk's width in
+ * px, so the caller can leave a deliberate gap of empty road after it.
+ */
+function spawnChunk(world) {
   const metres = distanceM(world);
   const stage = stageFor(metres);
   const random = world.random;
-  const roll = random();
-  let kind = 'corn';
-  let y = FIELD.groundY - 46;
-  if (roll >= 0.92) {
-    // Chicken feed: rare, always at jump height, the big escape tool.
-    kind = 'feed';
-    y = FIELD.groundY - 130;
-  } else if (stage === 2 && roll < 0.06) {
-    kind = 'goldenCorn';
-    y = FIELD.groundY - 150;
-  } else if (roll < 0.16) {
-    kind = 'feather';
-    y = FIELD.groundY - 150;
-  } else if (roll < 0.5) {
-    y = FIELD.groundY - 130;
-  }
-  const x = FIELD.width + 40;
-  // Never put a ground-level pickup where grabbing it means running into
-  // a hazard: if a fence, hay bale, crate, oven or puddle is waiting at
-  // the spawn point, lift the pickup to jump height so it is collected on
-  // the way over the hazard instead of inside it.
-  if (y === FIELD.groundY - 46) {
-    const hazardNear = world.obstacles.some((ob) => ob.kind !== 'knifeThrown' && ob.kind !== 'knifeFalling' && ob.x + ob.width > x - 60 && ob.x < x + 200);
-    if (hazardNear) y = FIELD.groundY - 130;
-  }
-  world.pickups.push({ kind, x, y, width: 30, height: 40, taken: false });
-  // Corn often comes in a little line of three.
-  if (kind === 'corn' && random() < 0.5) {
-    world.pickups.push({ kind, x: x + 64, y, width: 30, height: 40, taken: false });
-    world.pickups.push({ kind, x: x + 128, y, width: 30, height: 40, taken: false });
-  }
-}
+  const x0 = FIELD.width + 40;
+  const table = [
+    ['groundLine', 3],
+    ['singleJump', 4],
+    ['highLine', 2],
+  ];
+  if (stage >= 1) table.push(['doubleJump', 3], ['feedJump', 1]);
+  if (stage >= 2) table.push(['knifeDuck', 2]);
+  const pattern = pickWeighted(random, table);
+  let width = 0;
 
+  if (pattern === 'groundLine') {
+    // Breather: a line of corn on safe ground, nothing to dodge.
+    for (let i = 0; i < 5; i += 1) addPickup(world, x0 + i * 64, 'corn', 0);
+    width = 290;
+  } else if (pattern === 'singleJump') {
+    // One obstacle with a coin parabola over it: jump it, eat the arc.
+    const kind = pickJumpObstacle(world, stage, false);
+    const ob = addObstacle(world, kind, x0 + 180);
+    addJumpArc(world, ob.x + ob.width / 2);
+    width = 355 + ob.width / 2;
+  } else if (pattern === 'doubleJump') {
+    // Two obstacles close together: land from the first jump and jump again
+    // at once. The second is never tall if the first one is.
+    const kind1 = pickJumpObstacle(world, stage, false);
+    const tall1 = kind1 === 'crate' || kind1 === 'oven';
+    const kind2 = pickJumpObstacle(world, stage, tall1);
+    const ob1 = addObstacle(world, kind1, x0 + 150);
+    addJumpArc(world, ob1.x + ob1.width / 2);
+    const ob2 = addObstacle(world, kind2, x0 + 450);
+    addJumpArc(world, ob2.x + ob2.width / 2);
+    width = 625 + ob2.width / 2;
+  } else if (pattern === 'highLine') {
+    // A line of coins at jump height: one jump grabs them all.
+    for (let i = 0; i < 4; i += 1) addPickup(world, x0 + i * 80, 'corn', 180);
+    if (random() < 0.4) addPickup(world, x0 + 120, 'feather', 220);
+    width = 270;
+  } else if (pattern === 'feedJump') {
+    // A jump with a chicken-feed bag at the peak: the big escape tool.
+    const kind = pickJumpObstacle(world, stage, false);
+    const ob = addObstacle(world, kind, x0 + 180);
+    addJumpArc(world, ob.x + ob.width / 2, 'feed');
+    width = 355 + ob.width / 2;
+  } else {
+    // knifeDuck (kitchen only): a thrown knife at head height, corn on the
+    // ground underneath — duck to collect, standing up costs a hit.
+    addObstacle(world, 'knifeThrown', x0 + 200);
+    for (let i = 0; i < 3; i += 1) addPickup(world, x0 + 160 + i * 64, 'corn', 0);
+    width = 374;
+  }
+  return width;
+}
 /**
  * One fixed step of play. `input` is { jump, ducking } — jump is a one-shot
  * press, ducking is held. Returns a bitmask of EVENT_* for sounds and
@@ -251,17 +293,11 @@ export function stepWorld(world, input, dt = STEP) {
   if (world.shake > 0) world.shake -= dt;
   if (world.flash > 0) world.flash -= dt;
 
-  // --- spawns ---
-  world.spawnTimer -= dt;
-  if (world.spawnTimer <= 0) {
-    spawnObstacle(world);
-    const interval = SPAWN_INTERVAL[stage];
-    world.spawnTimer = interval * (1 - SPAWN_JITTER / 2 + world.random() * SPAWN_JITTER);
-  }
-  world.pickupTimer -= dt;
-  if (world.pickupTimer <= 0) {
-    spawnPickup(world);
-    world.pickupTimer = 1.6 + world.random() * 1.2;
+  // --- spawns: one pattern chunk at a time, then a breather gap ---
+  if (world.distancePx >= world.nextChunkDist) {
+    const width = spawnChunk(world);
+    const gap = (stage === 0 ? 160 : stage === 1 ? 130 : 100) + world.random() * 120;
+    world.nextChunkDist = world.distancePx + width + gap;
   }
 
   // --- obstacles move and collide ---
