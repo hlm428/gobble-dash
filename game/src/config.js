@@ -27,11 +27,11 @@ export const FARMER = {
   /** Pixels of ground lost on each stumble. */
   hitCost: 60,
   /** Pixels regained per corn cob. */
-  cornPush: 20,
+  cornPush: 10,
   /** Pixels regained per chicken-feed bag: the big escape tool. */
   feedPush: 60,
   /** Pixels regained per second of clean running (after 3 s without a hit). */
-  recoverPerSecond: 5,
+  recoverPerSecond: 3,
 };
 
 /** Chicken feed: a short speed burst plus the turkey pulling away. */
@@ -94,11 +94,11 @@ export const STAGES = [
 
 /** Obstacle shapes: width, height, whether to jump it, whether to duck it. */
 export const OBSTACLES = {
-  fence: { width: 26, height: 92, dodge: 'jump', weight: 3 },
-  hay: { width: 72, height: 64, dodge: 'jump', weight: 3 },
+  fence: { width: 26, height: 92, dodge: 'jump', weight: 3, farmOnly: true },
+  hay: { width: 72, height: 64, dodge: 'jump', weight: 3, farmOnly: true },
   crate: { width: 50, height: 90, dodge: 'jump', weight: 2 },
   puddle: { width: 96, height: 16, dodge: 'jump', weight: 2, stumbleCost: 35 },
-  oven: { width: 90, height: 100, dodge: 'jump', weight: 2, kitchenOnly: true },
+  oven: { width: 90, height: 100, dodge: 'jump', weight: 3, kitchenOnly: true },
   knifeThrown: { width: 54, height: 16, dodge: 'duck', weight: 2, kitchenOnly: true, flySpeed: 220 },
   knifeFalling: { width: 18, height: 64, dodge: 'jump', weight: 2, kitchenOnly: true, fallSpeed: 620 },
 };

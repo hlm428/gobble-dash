@@ -226,17 +226,19 @@ function drawScenery(ctx, world) {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.fillRect(0, 0, W, 5);
     for (let x = 90 - (offset % 220); x < W; x += 220) {
+      // Cords start below the HUD (which ends at y=78) so the lanterns
+      // are never sliced by the top bar.
       ctx.strokeStyle = OUT;
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.moveTo(x, 34);
-      ctx.lineTo(x, 96);
+      ctx.moveTo(x, 82);
+      ctx.lineTo(x, 144);
       ctx.stroke();
       ctx.fillStyle = 'rgba(255, 179, 71, 0.30)';
-      ellipse(ctx, x, 122, 36, 42);
-      ball(ctx, x, 122, 16, 20, '#ffb347', 3);
+      ellipse(ctx, x, 170, 36, 42);
+      ball(ctx, x, 170, 16, 20, '#ffb347', 3);
       ctx.fillStyle = '#fff3c4';
-      ellipse(ctx, x - 4, 118, 6, 8);
+      ellipse(ctx, x - 4, 166, 6, 8);
     }
   } else if (world.stageIndex === 2) {
     // Kitchen: cream tiled wall, hanging pots, a window onto the farm.
@@ -251,43 +253,46 @@ function drawScenery(ctx, world) {
     }
     for (let i = 0; i < 3; i += 1) {
       const px = 240 + i * 380 - ((offset * 0.4) % 380);
+      // Cords start below the HUD (which ends at y=78) so the pots keep
+      // their strings and are never sliced into floating black discs.
       ctx.strokeStyle = OUT;
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.moveTo(px, 0);
-      ctx.lineTo(px, 74);
+      ctx.moveTo(px, 82);
+      ctx.lineTo(px, 130);
       ctx.stroke();
-      ball(ctx, px, 108, 34, 26, '#3f4a55', 3);
+      ball(ctx, px, 164, 34, 26, '#3f4a55', 3);
       ctx.fillStyle = '#2c353d';
-      ellipse(ctx, px, 96, 30, 10);
+      ellipse(ctx, px, 152, 30, 10);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-      ellipse(ctx, px - 12, 100, 10, 6);
+      ellipse(ctx, px - 12, 156, 10, 6);
     }
     // Window: frame first, then a little farm scene clipped inside it.
+    // Shifted down so its top sits below the HUD instead of under it.
     ctx.fillStyle = '#fff6e8';
-    rr(ctx, 980, 60, 170, 130, 10);
+    rr(ctx, 980, 90, 170, 130, 10);
     ctx.fill();
     ctx.strokeStyle = OUT;
     ctx.lineWidth = 3;
     ctx.stroke();
     ctx.save();
-    rr(ctx, 990, 70, 150, 110, 8);
+    rr(ctx, 990, 100, 150, 110, 8);
     ctx.clip();
     ctx.fillStyle = '#8fd4f7';
-    ctx.fillRect(990, 70, 150, 110);
-    ball(ctx, 1115, 95, 14, 14, '#ffdf4d', 2);
+    ctx.fillRect(990, 100, 150, 110);
+    ball(ctx, 1115, 125, 14, 14, '#ffdf4d', 2);
     ctx.fillStyle = '#7bc043';
-    ellipse(ctx, 1065, 200, 100, 46);
+    ellipse(ctx, 1065, 230, 100, 46);
     ctx.fillStyle = '#5e9b2e';
-    ellipse(ctx, 1000, 205, 70, 40);
+    ellipse(ctx, 1000, 235, 70, 40);
     ctx.restore();
     ctx.fillStyle = '#fff6e8';
-    ctx.fillRect(1058, 60, 10, 130);
-    ctx.fillRect(980, 118, 170, 10);
+    ctx.fillRect(1058, 90, 10, 130);
+    ctx.fillRect(980, 148, 170, 10);
     ctx.strokeStyle = OUT;
     ctx.lineWidth = 2;
-    ctx.strokeRect(1058, 60, 10, 130);
-    ctx.strokeRect(980, 118, 170, 10);
+    ctx.strokeRect(1058, 90, 10, 130);
+    ctx.strokeRect(980, 148, 170, 10);
   } else {
     // Farmyard: rolling green hills, a red barn, a white picket fence.
     hill(ctx, offset, 0.10, 90, '#9bd84a');
@@ -538,7 +543,7 @@ function drawObstacle(ctx, ob) {
     ctx.fill();
     ctx.fillStyle = '#2c353d';
     ctx.fillRect(x + 12, y + height - 26, width - 24, 8);
-    for (let i = 0; i < 3; i += 1) ball(ctx, x + 30 + i * 34, y + height - 14, 8, 5, '#e8e2d5', 2);
+    for (let i = 0; i < 3; i += 1) ball(ctx, x + 20 + i * 25, y + height - 14, 8, 5, '#e8e2d5', 2);
     textOutlined(ctx, 'HOT', x + width / 2, y - 14, 18, '#ff6b5e', 'center', '800', 5);
   } else if (ob.kind === 'knifeThrown' || ob.kind === 'knifeFalling') {
     ctx.save();
@@ -663,7 +668,9 @@ function drawTurkey(ctx, world) {
 function drawFarmer(ctx, world) {
   const gap = world.farmer.gap;
   const x = TURKEY_X - gap - 30;
-  if (x < -90) return;
+  // Hide him entirely while he is too far left to be fully on screen;
+  // a half-clipped farmer stuck at the edge reads as a bug.
+  if (x < 30) return;
   const bob = Math.abs(Math.sin(world.time * 9)) * 6;
   const reaching = gap < 70;
   ctx.fillStyle = 'rgba(30, 60, 10, 0.2)';
@@ -849,9 +856,10 @@ function drawHUD(ctx, world) {
   // Pause + mute buttons.
   button(ctx, 'pause', 1120, 24, 56, 44, 'II', 22);
   button(ctx, 'mute', 1188, 24, 56, 44, world.muted ? '✕' : '♪', 22);
-  // Chicken-feed boost indicator.
+  // Chicken-feed boost indicator. Kept below the stage banner
+  // (y=100–146) so the two never overlap.
   if (world.time < world.feedBoostUntil) {
-    textOutlined(ctx, 'FEED BOOST!', 640, 108, 24, '#ff9f1c', 'center', '800', 5);
+    textOutlined(ctx, 'FEED BOOST!', 640, 170, 24, '#ff9f1c', 'center', '800', 5);
   }
   // Banner.
   if (world.banner.text && world.time < world.banner.until) {

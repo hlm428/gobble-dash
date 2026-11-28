@@ -125,15 +125,18 @@ function addPickup(world, x, kind, heightAboveGround) {
 }
 
 /**
- * A coin parabola over a jump: 7 coins on the jump arc, peak over the
+ * A coin parabola over a jump: 5 coins on the jump arc, peak over the
  * obstacle centre. The turkey collects coins on the way up AND on the way
  * down, so a full jump never comes back empty. `peakKind` replaces the
- * peak coin (e.g. a feed bag for the big escape tool).
+ * peak coin (e.g. a feed bag for the big escape tool). The arc is kept
+ * narrow (half-width 120) so its ends stay near the obstacle instead of
+ * floating far past it. `peak` lowers the whole arc for the feed jump,
+ * so the feed bag sits below the absolute jump apex and is actually
+ * reachable instead of demanding a pixel-perfect apex.
  */
-function addJumpArc(world, centreX, peakKind = 'corn') {
-  const halfWidth = 160;
-  const peak = 228;
-  const offsets = [-160, -107, -53, 0, 53, 107, 160];
+function addJumpArc(world, centreX, peakKind = 'corn', peak = 228) {
+  const halfWidth = 120;
+  const offsets = [-120, -60, 0, 60, 120];
   for (const dx of offsets) {
     const h = peak * (1 - (dx / halfWidth) * (dx / halfWidth));
     const kind = dx === 0 && peakKind !== 'corn' ? peakKind : 'corn';
@@ -163,6 +166,7 @@ function pickJumpObstacle(world, stage, avoidTall) {
   for (const [kind, spec] of Object.entries(OBSTACLES)) {
     if (spec.dodge !== 'jump') continue;
     if (spec.kitchenOnly && stage < 2) continue;
+    if (spec.farmOnly && stage >= 2) continue;
     if (avoidTall && (kind === 'crate' || kind === 'oven')) continue;
     choices.push([kind, spec.weight]);
   }
@@ -183,14 +187,16 @@ function spawnChunk(world) {
     ['singleJump', 4],
     ['highLine', 2],
   ];
-  if (stage >= 1) table.push(['doubleJump', 3], ['feedJump', 1]);
+  if (stage >= 1) table.push(['doubleJump', 3], ['feedJump', 2]);
   if (stage >= 2) table.push(['knifeDuck', 2]);
   const pattern = pickWeighted(random, table);
   let width = 0;
 
   if (pattern === 'groundLine') {
-    // Breather: a line of corn on safe ground, nothing to dodge.
-    for (let i = 0; i < 5; i += 1) addPickup(world, x0 + i * 64, 'corn', 0);
+    // Breather: a line of corn on safe ground, nothing to dodge. Raised
+    // 55 px so it clears the farmyard fence rails instead of being
+    // pierced by them.
+    for (let i = 0; i < 3; i += 1) addPickup(world, x0 + i * 64, 'corn', 55);
     width = 290;
   } else if (pattern === 'singleJump') {
     // One obstacle with a coin parabola over it: jump it, eat the arc.
@@ -211,20 +217,23 @@ function spawnChunk(world) {
     width = 625 + ob2.width / 2;
   } else if (pattern === 'highLine') {
     // A line of coins at jump height: one jump grabs them all.
-    for (let i = 0; i < 4; i += 1) addPickup(world, x0 + i * 80, 'corn', 180);
+    for (let i = 0; i < 3; i += 1) addPickup(world, x0 + i * 80, 'corn', 180);
     if (random() < 0.4) addPickup(world, x0 + 120, 'feather', 220);
     width = 270;
   } else if (pattern === 'feedJump') {
     // A jump with a chicken-feed bag at the peak: the big escape tool.
+    // The whole arc peaks at 190 (below the 228 jump apex) so the bag is
+    // reachable on the way up and down, not only at a perfect apex.
     const kind = pickJumpObstacle(world, stage, false);
     const ob = addObstacle(world, kind, x0 + 180);
-    addJumpArc(world, ob.x + ob.width / 2, 'feed');
+    addJumpArc(world, ob.x + ob.width / 2, 'feed', 190);
     width = 355 + ob.width / 2;
   } else {
     // knifeDuck (kitchen only): a thrown knife at head height, corn on the
     // ground underneath — duck to collect, standing up costs a hit.
+    // Corn raised 55 px so it clears the farmyard fence rails.
     addObstacle(world, 'knifeThrown', x0 + 200);
-    for (let i = 0; i < 3; i += 1) addPickup(world, x0 + 160 + i * 64, 'corn', 0);
+    for (let i = 0; i < 2; i += 1) addPickup(world, x0 + 160 + i * 64, 'corn', 55);
     width = 374;
   }
   return width;
