@@ -3,7 +3,7 @@
 // restarts into a fresh run. ?shot=title|play|kitchen|escaped|caught stages
 // one deterministic scene for a screenshot instead of starting the game.
 
-import { FIELD, STEP } from './config.js';
+import { FIELD, STEP, STAGES } from './config.js';
 import { createWorld, resetWorld, stepWorld, distanceM, score, EVENT_JUMP, EVENT_LAND, EVENT_CORN, EVENT_FEATHER, EVENT_GOLDEN, EVENT_HIT, EVENT_STAGE, EVENT_ESCAPED, EVENT_CAUGHT, EVENT_SPOTTED } from './world.js';
 import { render, currentButtons } from './render.js';
 import { createInput, ACTION_JUMP, ACTION_CONFIRM, ACTION_PAUSE, ACTION_MUTE } from './input.js';
@@ -21,12 +21,44 @@ const input = createInput(canvas);
 const audio = createAudio();
 
 function fitCanvas() {
-  const scale = Math.min(window.innerWidth / FIELD.width, window.innerHeight / FIELD.height);
-  canvas.style.width = `${Math.floor(FIELD.width * scale)}px`;
-  canvas.style.height = `${Math.floor(FIELD.height * scale)}px`;
+  const logicalW = FIELD.width;   // 1280
+  const logicalH = FIELD.height;  // 720
+  const winW = window.innerWidth;
+  const winH = window.innerHeight;
+  const winAspect = winW / winH;
+  const gameAspect = logicalW / logicalH;   // ≈ 1.777
+
+  let scale, cssW, cssH;
+
+  if (winAspect < gameAspect * 0.92) {
+    // Tall phone: crop a little top/bottom so the ground + characters stay large
+    scale = winW / logicalW;
+    cssW = winW;
+    cssH = Math.floor(logicalH * scale);
+  } else {
+    // Normal / wide: classic letterbox
+    scale = Math.min(winW / logicalW, winH / logicalH);
+    cssW = Math.floor(logicalW * scale);
+    cssH = Math.floor(logicalH * scale);
+  }
+
+  canvas.style.width  = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
 }
 window.addEventListener('resize', fitCanvas);
 fitCanvas();
+
+/** Paint the page background with the current stage's sky, so the letterbox
+ *  bars on tall/narrow screens blend with the scene instead of looking like
+ *  empty chrome. Cached by stage index; cheap to call every frame. */
+let lastBgStage = -1;
+function updatePageBackground(world) {
+  if (world.stageIndex === lastBgStage) return;
+  lastBgStage = world.stageIndex;
+  const stage = STAGES[world.stageIndex] || STAGES[0];
+  document.documentElement.style.setProperty('--stage-sky', stage.skyTop || stage.sky);
+}
+updatePageBackground(world);
 
 function announce(text) {
   if (statusEl) statusEl.textContent = text;
@@ -114,6 +146,7 @@ function frame(now) {
     }
   }
   render(ctx, world);
+  updatePageBackground(world);
   requestAnimationFrame(frame);
 }
 
@@ -123,6 +156,7 @@ const shot = params.get('shot');
 if (shot) {
   const seed = Number(params.get('seed') ?? 1) || 1;
   stageShot(shot, world, seed);
+  updatePageBackground(world);
   render(ctx, world);
   document.title = `Gobble Dash — shot ${shot}`;
 } else {
